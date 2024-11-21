@@ -1,4 +1,6 @@
+import { navigateTo } from "../main";
 import { Component } from "../micro";
+import { router } from "../main";
 
 export default class Login extends Component {
     constructor() {
@@ -28,17 +30,20 @@ export default class Login extends Component {
             </div>
         </div>
         <button type="submit" class="btn btn-primary">Login</button>
-    </form>
+        </form>
 </div>
         `;
     }
 
     addEventListeners() {
-        this.loginForm();
+        this.registrationForm();
     }
 
-    loginForm() {
+    registrationForm() {
         /** @type HTMLFormElement */
+        if (localStorage.getItem("isLogged")) {
+            return;
+        }
         const form = document.querySelector(".login-form");
 
         form.addEventListener("submit", async (event) => {
@@ -62,7 +67,9 @@ export default class Login extends Component {
                     error: "Bad input";
                 });
 
-            console.log(response);
+            localStorage.setItem("isLogged", true);
+            navigateTo("/profile");
+            router();
         });
     }
 

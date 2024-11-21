@@ -8,7 +8,7 @@ import Counter from "./views/Counter";
 import Registration from "./views/Registration";
 import { Component, html } from "./micro";
 
-const router = async () => {
+export const router = async () => {
     // Define routes and their associated views.
     // This allows us to dynamically render HTML content based on the current view.
     const routes = [
@@ -59,7 +59,7 @@ const router = async () => {
 };
 
 // Update the browser's history with the new URL and render the corresponding view.
-const navigateTo = (url) => {
+export const navigateTo = (url) => {
     history.pushState(null, null, url);
     router();
 };

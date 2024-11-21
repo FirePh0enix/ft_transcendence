@@ -128,6 +128,14 @@ export class Component {
             return this.parent.getFullPath() + "_" + (this.constructor.name + "#" + this.name);
         return this.constructor.name + "#" + this.name;
     }
+
+    getOrigin() {
+        return window.location.origin.substring(0, window.location.origin.lastIndexOf(":"));
+    }
+
+    api(route) {
+        return this.getOrigin() + ":8000" + route;
+    }
 }
 
 class ParsingError extends Error {
