@@ -11,47 +11,38 @@ import { Component, html } from "./micro";
 const router = async () => {
     // Define routes and their associated views.
     // This allows us to dynamically render HTML content based on the current view.
-    // const routes = [
-    //     { path: "/404", view: new NotFound() },
-    //     { path: "/", view: new Home() },
-    //     { path: "/profile", view: new Profile() },
-    //     { path: "/settings", view: new Settings() },
-    //     { path: "/counter", view: new Counter() },
-    // ];
+    const routes = [
+        // { path: "/404", view: new NotFound() },
+        // { path: "/", view: new Home() },
+        // { path: "/profile", view: new Profile() },
+        // { path: "/settings", view: new Settings() },
+        { path: "/counter", view: html(null, /*html*/ `<Counter />`) },
+    ];
 
-    // // Create an array of potential matches by mapping routes to their match status.
-    // // This helps us determine if the current path exists in our routes array.
-    // const potentialMatches = routes.map((route) => {
-    //     return {
-    //         route: route,
-    //         isMatch: location.pathname === route.path,
-    //     };
-    // });
+    // Create an array of potential matches by mapping routes to their match status.
+    // This helps us determine if the current path exists in our routes array.
+    const potentialMatches = routes.map((route) => {
+        return {
+            route: route,
+            isMatch: location.pathname === route.path,
+        };
+    });
 
-    // // TODO: Implement a 404 page for unmatched routes.
-    // let match = potentialMatches.find((potentialMatch) => potentialMatch.isMatch);
-    // if (!match) {
-    //     match = {
-    //         route: routes[0],
-    //         isMatch: true,
-    //     };
-    // }
+    // TODO: Implement a 404 page for unmatched routes.
+    let match = potentialMatches.find((potentialMatch) => potentialMatch.isMatch);
+    if (!match) {
+        match = {
+            route: routes[0],
+            isMatch: true,
+        };
+    }
 
     // Instantiate the view associated with the matched route.
-    // const view = match.route.view;
+    const view = match.route.view;
+    const app = document.getElementById("app");
 
-    // class A extends HTMLElement {
-    //     connectedCallback() {
-    //         console.log("hello");
-    //     }
-    // }
-
-    const el = html(null, /*html*/ `<div link="zelda"><Counter /></div>`, { Counter: Counter });
-    document.getElementById("app").appendChild(el);
-
-    // customElements.define("a-a", A);
-
-    // document.getElementById("app").appendChild(document.createElement("a-a"));
+    if (app.children.length > 0) app.replaceChild(view, app.children[0]);
+    else app.appendChild(view);
 
     // view.updateHandler = async () => {
     //     document.getElementById("app").innerHTML = await view.render();

@@ -31,10 +31,10 @@ export class Component {
     }
 
     /**
-     * @returns {Promise<string>} The generated HTML
+     * @returns {Promise<HTMLElement>} The generated HTML
      */
     async render() {
-        return "";
+        return null;
     }
 
     events() {
@@ -65,21 +65,39 @@ export class Component {
         ];
     }
 
-    usePersistentStore(name, defaultValue) {
-        var key = this.getFullPath() + "__" + name;
-        var item = window.localStorage.getItem(key);
+    // TODO:
+    // Dont return a function for the getter if possible !!!
+
+    useGlobalStore(name, defaultValue) {
+        var item = localStorage.getItem(name);
 
         if (item == null) {
             item = JSON.stringify(defaultValue);
-            window.localStorage.setItem(key, item);
+            localStorage.setItem(name, item);
         }
 
         return [
-            () => {
-                return JSON.parse(window.localStorage.getItem(key));
-            },
+            JSON.parse(localStorage.getItem(name)),
             (value) => {
-                window.localStorage.setItem(key, value);
+                localStorage.setItem(name, value);
+                setTimeout(() => this.update(), 0);
+            },
+        ];
+    }
+
+    usePersistentStore(name, defaultValue) {
+        var key = this.getFullPath() + "__" + name;
+        var item = localStorage.getItem(key);
+
+        if (item == null) {
+            item = JSON.stringify(defaultValue);
+            localStorage.setItem(key, item);
+        }
+
+        return [
+            JSON.parse(localStorage.getItem(key)),
+            (value) => {
+                localStorage.setItem(key, value);
                 setTimeout(() => this.update(), 0);
             },
         ];
@@ -112,24 +130,62 @@ export class Component {
     }
 }
 
-class ParsingError {
-    EXPECTING_ELEMENT = 0;
-    UNKNOWN_ELEMENT = 1;
-    ONE_TOP_LEVEL_ELEMENT = 2;
+class ParsingError extends Error {
+    static EXPECTING_TAG = 0;
+    static UNKNOWN_ELEMENT = 1;
+    static ONE_TOP_LEVEL_ELEMENT = 2;
+    static NO_CLOSING_TAG = 3;
+    static EXPECTING_IDENT = 4;
 
-    constructor(err, line, column, source, data) {
+    constructor(err, token, source, data) {
+        super(ParsingError.errorString(err, token, source, data), null);
+
         this.err = err;
-        this.line = line;
-        this.column = column;
+        this.token = token;
         this.source = source;
         this.data = data;
     }
 
-    errorString() {
-        switch (this.err) {
-            case this.EXPECTING_ELEMENT:
-                return ``;
+    static errorString(err, token, source, data) {
+        switch (err) {
+            case ParsingError.EXPECTING_TAG:
+                return `Expecting an element but found ${token.s}`;
+            case ParsingError.UNKNOWN_ELEMENT:
+                return `Unknown element <${token.s}>`;
+            case ParsingError.ONE_TOP_LEVEL_ELEMENT:
+                return `Only top element is supported` /*+
+                    ParsingError.errorLocation(source, token.line, token.column, 2 + token.s.length)*/;
+            case ParsingError.NO_CLOSING_TAG:
+                return `No closing tag for <${token.s}>`;
+            case ParsingError.EXPECTING_IDENT:
+                return (
+                    `Expecting identifier but got \`${token.s}\`` +
+                    ParsingError.errorLocation(source, token.line, token.column, token.s.length)
+                );
         }
+    }
+
+    /**
+     * @param {string} source
+     * @param {number} line
+     * @param {number} columnStart
+     * @param {number} size
+     */
+    static errorLocation(source, line, columnStart, size) {
+        const lines = source.split("\n");
+        let s = `\n${lines[line - 1]}\n`;
+
+        for (let i = 0; i < columnStart - 1; i++) {
+            s += " ";
+        }
+
+        s += "^";
+
+        for (let i = 1; i < size; i++) {
+            s += "~";
+        }
+
+        return s;
     }
 }
 
@@ -155,8 +211,9 @@ class HTMLComponent extends HTMLElement {
     updateHTML() {
         setTimeout(async () => {
             if (this.component != undefined) {
-                // this.appendChild(this.component.render());
-                this.innerHTML = await this.component.render();
+                const newChild = await this.component.render();
+                if (this.children.length > 0) this.removeChild(this.children[0]);
+                this.appendChild(newChild);
                 this.component.events();
             }
         }, 0);
@@ -167,8 +224,8 @@ class HTMLComponent extends HTMLElement {
  * @param {string} str
  * @returns {HTMLElement | ParsingError}
  */
-export function html(parent, str, components) {
-    // There is probably a better place to put this
+export function html(parent, str) {
+    // There is probably a better place to put this. This maybe should go away when parsing is done.
     if (customElements.get("micro-component") == undefined) {
         customElements.define("micro-component", HTMLComponent);
     }
@@ -300,15 +357,16 @@ export function html(parent, str, components) {
         let index = start;
 
         if (tokens[index].type != Token.OPEN_TAG) {
-            throw new ParsingError(); // Expected opening tag!!!
+            throw new ParsingError(ParsingError.EXPECTING_TAG, tokens[index], str); // Expected opening tag!!!
         }
 
         index++;
 
         if (tokens[index].type != Token.IDENT) {
-            throw new ParsingError(); // Expecting element name!!!
+            throw new ParsingError(ParsingError.EXPECTING_IDENT, tokens[index], str); // Expecting element name!!!
         }
 
+        const startToken = tokens[index];
         const name = tokens[index].s;
         index++;
 
@@ -322,7 +380,7 @@ export function html(parent, str, components) {
             if (tokens[index].type == Token.CLOSE_TAG || tokens[index].type == Token.SLASH) {
                 break;
             } else if (tokens[index].type != Token.IDENT) {
-                throw new ParsingError(); // Expecting attribute name !!!
+                throw new ParsingError(ParsingError.EXPECTING_IDENT, tokens[index], str); // Expecting attribute name !!!
             }
 
             const name = tokens[index].s;
@@ -341,10 +399,10 @@ export function html(parent, str, components) {
                 } else {
                     throw new ParsingError(); // Expecting attribute value !!!
                 }
+                index++;
             }
 
             attributes.set(name, value);
-            index++;
         }
 
         if (tokens[index].type == Token.CLOSE_TAG) {
@@ -357,21 +415,23 @@ export function html(parent, str, components) {
             index += 2;
         }
 
-        // console.log(name, ...attributes);
-
         /** @type HTMLElement */
         let el;
 
-        if (components[name] != undefined) {
+        if (globalComponents.has(name)) {
             el = document.createElement("micro-component");
-            el.component = new components[name]();
+
+            const c = globalComponents.get(name);
+
+            el.component = new c();
+            el.component.parent = parent;
             el.component.updateHandler = () => {
                 el.updateHTML();
             };
         } else {
             el = document.createElement(name);
             if (el == undefined) {
-                throw new ParsingError(); // Unknown element!!!
+                throw new ParsingError(ParsingError.UNKNOWN_ELEMENT, tokens[startToken], str); // Unknown element!!!
             }
 
             for (let [key, value] of attributes) {
@@ -384,33 +444,40 @@ export function html(parent, str, components) {
             /** @type Map<string, number> */
             let openTags = new Map();
 
+            function checkAllClosed() {
+                for (let [key, count] of openTags) {
+                    if (count != 0) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
             while (index2 < end) {
-                /*if (tokens[index2].type == Token.OPEN_TAG) {
-                        index2++;
+                if (tokens[index2].type == Token.OPEN_TAG) {
+                    if (tokens[index2 + 1].type == Token.SLASH) {
+                        index2 += 2;
 
                         const name = tokens[index2].s;
-
+                        if (name == tagName && checkAllClosed()) {
+                            return index2 - 2;
+                        }
+                    } else {
+                        index2++;
+                        const name = tokens[index2].s;
                         while (
                             index2 < end &&
-                            (tokens[index2].type != Token.CLOSE_TAG || tokens[index2].type != Token.SLASH)
+                            tokens[index2].type != Token.CLOSE_TAG &&
+                            tokens[index2].type != Token.SLASH
                         ) {
                             index2++;
                         }
-
                         if (index2 == Token.CLOSE_TAG) {
                             openTags[name] += 1;
-                            index++;
+                            index2++;
                         } else if (index2 == Token.SLASH) {
-                            index += 2;
+                            index2 += 2;
                         }
-                    } else*/
-                if (tokens[index2].type == Token.OPEN_TAG && tokens[index2 + 1].type == Token.SLASH) {
-                    index2 += 2;
-
-                    const name = tokens[index2].s;
-                    if (name == tagName) {
-                        // TODO: Also check if all values in openTags are 0
-                        return index2 - 2;
                     }
                 }
 
@@ -423,7 +490,9 @@ export function html(parent, str, components) {
         if (hasInnerHTML) {
             const newEnd = findClosingTag(name);
 
-            // index += 4; // `<`, `/`, `...` and `>`
+            if (newEnd >= tokens.length) {
+                throw new ParsingError(ParsingError.NO_CLOSING_TAG, startToken, str);
+            }
 
             if (tokens[index].type == Token.CONTENT) {
                 el.innerText = tokens[index].s;
@@ -444,8 +513,11 @@ export function html(parent, str, components) {
 
     const [el, stoppedIndex] = parseTags(parent, tokens, 0, tokens.length);
 
-    if (stoppedIndex != tokens.length) {
-        throw ParsingError(ParsingError.ONE_TOP_LEVEL_ELEMENT, 1, 1, str);
+    if (stoppedIndex < tokens.length) {
+        throw new ParsingError(ParsingError.ONE_TOP_LEVEL_ELEMENT, tokens[stoppedIndex], str);
     }
     return el;
 }
+
+/** @type Map<string, any> */
+export const globalComponents = new Map();

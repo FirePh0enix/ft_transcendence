@@ -1,12 +1,14 @@
-import { Component } from "../micro";
+import { Component, globalComponents, html } from "../micro";
 
-export default class extends Component {
+export default class NavBar extends Component {
     constructor() {
         super();
     }
 
     async render() {
-        return `
+        return html(
+            this.parent,
+            /*html*/ `
         <ul class="nav nav-underline">
             <li class="nav-item">
                 <a class="nav-link" data-link href="/">Home</a>
@@ -20,6 +22,8 @@ export default class extends Component {
             <li class="nav-item">
                 <a class="nav-link" data-link href="/counter">Counter</a>
             </li>
-        </ul>`;
+        </ul>`
+        );
     }
 }
+globalComponents.set("NavBar", NavBar);
