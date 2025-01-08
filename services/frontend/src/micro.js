@@ -5,301 +5,6 @@ import { registerAll } from "./micro.generated";
  */
 export let components = new Map();
 let routerSettings = undefined;
-let initialPageLoad = true;
-
-/*
-    ROOTER
- */
-
-window.onpopstate = async () => {
-    await router();
-};
-
-/**
- * @param {Node} node
- * @returns {string}
- */
-function elementToString(node) {
-    if (node instanceof Element) {
-        let s = node.tagName + "-attribs[";
-
-        for (let index = 0; index < node.attributes.length; index++) {
-            s += node.attributes.item(index).name + "=" + node.attributes.item(index).value;
-        }
-
-        s += "]-class[";
-
-        for (let index = 0; index < node.classList.length; index++) {
-            s += node.classList.item(index) + ",";
-        }
-
-        s += "]";
-        return s;
-    } else if (node instanceof Text) {
-        return "TEXT-" + node.data;
-    }
-}
-
-/**
- * Recursively go down through the node tree and replace nodes only when necessary.
- *
- * @param {Element} oldElement
- * @param {Element} newElement
- * @param {Element} app
- * @param {ComponentNode} oldNode
- * @param {ComponentNode} newNode
- * @param {ComponentNode} appNode
- */
-function applyTreeDifference(oldElement, newElement, app, oldNode, newNode, appNode) {
-    let index = 0;
-
-    // NOTE: When calling `Element.replaceChild` the node is removed from the original tree before
-    //       replacing in the new tree, decrementing `element.childNodes.length` in the process.
-    //       We need to clone the node before!
-
-    let oldString = elementToString(oldElement);
-    let newString = elementToString(newElement);
-
-    if (oldString != newString) {
-        // for (let child of oldNode.childOf(oldElement)) {
-        //     console.log(child);
-        //     child.cleanup();
-        // }
-
-        console.log(oldNode.childOf(oldElement));
-
-        app.replaceChild(newElement, oldElement);
-        appNode.replaceChild(newNode, oldNode);
-
-        return;
-    }
-
-    for (; index < oldElement.childNodes.length; index++) {
-        if (index >= newElement.childNodes.length) {
-            const element = oldElement.childNodes.item(index);
-
-            for (let child of oldNode.childOf(oldElement)) {
-                child.cleanup();
-            }
-
-            oldElement.removeChild(element);
-        } else {
-            let oldString = elementToString(oldElement.childNodes.item(index));
-            let newString = elementToString(newElement.childNodes.item(index));
-
-            if (oldString != newString) {
-                // replace the node
-                const element = oldElement.childNodes.item(index);
-
-                for (let child of oldNode.childOf(element)) {
-                    child.cleanup();
-                }
-
-                oldElement.replaceChild(newElement.childNodes.item(index).cloneNode(true), element);
-            } else {
-                // nothing to do, go down the tree recursively
-                let element = oldElement.childNodes.item(index);
-
-                if (element instanceof Element) {
-                    if (element.classList.length == 2 && element.classList.item(0).includes("micro-")) {
-                        let oldNode2 = oldNode.getComponentById(element.classList.item(1));
-                        let newNode2 = newNode.getComponentById(element.classList.item(1));
-
-                        applyTreeDifference(
-                            oldElement.childNodes.item(index),
-                            newElement.childNodes.item(index),
-                            app,
-                            oldNode2,
-                            newNode2,
-                            appNode
-                        );
-                    } else {
-                        applyTreeDifference(
-                            oldElement.childNodes.item(index),
-                            newElement.childNodes.item(index),
-                            app,
-                            oldNode,
-                            newNode,
-                            appNode
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    for (; index < newElement.childNodes.length; index++) {
-        oldElement.appendChild(newElement.childNodes.item(index));
-    }
-}
-
-function matchRoute(routes, path) {
-    const parts = path.substring(1).split("/");
-
-    for (let route of routes) {
-        const routeParts = route.path.substring(1).split("/");
-
-        if (routeParts.length !== parts.length) {
-            continue;
-        }
-
-        let params = new Map();
-
-        let index = 0;
-        for (; index < parts.length; index++) {
-            let part = parts[index];
-            let routePart = routeParts[index];
-
-            if (routePart[0] == "[" && routePart[routePart.length - 1] == "]") {
-                /** @type {string} */
-                let param = routePart.substring(1, routePart.length - 1);
-                let value = part;
-
-                if (param.includes("=")) {
-                    let name = param.substring(0, param.indexOf("="));
-                    let values = param.substring(param.indexOf("=") + 1);
-
-                    if (values[0] == "$" && values[values.length - 1] == "$") {
-                        const regex = new RegExp(values.substring(1, values.length - 1));
-
-                        if (!regex.test(value)) {
-                            break;
-                        }
-                    } else {
-                        let values2 = values.split(",");
-
-                        if (!values2.includes(value)) {
-                            break;
-                        }
-                    }
-
-                    param = name;
-                }
-
-                params.set(param, value);
-            } else if (routePart != part) {
-                break;
-            }
-        }
-
-        if (index == parts.length) {
-            return { route: route, params: params };
-        }
-    }
-
-    return undefined;
-}
-
-let rootNode;
-
-async function router() {
-    let app = document.getElementById("micro-app");
-    let newRootNode = new ComponentNode(undefined, "$Root", undefined);
-    let oldElement = app.firstElementChild;
-
-    if (routerSettings == undefined) {
-        return;
-    }
-
-    const route = matchRoute(routerSettings.routes, location.pathname);
-    let newElement;
-
-    // This should not be called here, only once during load and after each hot reload
-    registerAll();
-
-    if (route != undefined) {
-        if (routerSettings.hook && initialPageLoad) {
-            // We don't want to call the hook every time we refresh the page, only when navigating
-            // between pages.
-            await routerSettings.hook(route.route.path);
-        }
-
-        let attributes = new Map();
-
-        if (route.route.attributes != undefined) {
-            attributes = new Map(Object.entries(route.route.attributes));
-        }
-
-        newElement = await createComponent(route.route.view, attributes, route.params, newRootNode, app);
-    } else if (routerSettings.notFound != undefined) {
-        newElement = await createComponent(routerSettings.notFound, new Map(), new Map(), newRootNode, app);
-    }
-
-    if (newElement == undefined) {
-        throw new Error("Invalid view");
-    }
-
-    if (oldElement == null) {
-        app.append(newElement);
-    } else {
-        let oldNode = rootNode.children.at(0);
-        let newNode = newRootNode.children.at(0);
-
-        applyTreeDifference(oldElement, newElement, app, oldNode, newNode, rootNode);
-    }
-
-    rootNode = newRootNode;
-
-    if (initialPageLoad) {
-        rootNode.addEventListeners();
-        await rootNode.applyDoCallbacks();
-    }
-
-    initialPageLoad = false;
-}
-
-/**
- * @param {import("./micro").RouterSettings} settings
- */
-export function defineRouter(settings) {
-    routerSettings = settings;
-
-    document.addEventListener("DOMContentLoaded", async () => {
-        // Prevent <a> tags from reloading the page by preventing the default behaviour
-        // and using our own `navigateTo`
-        document.body.addEventListener("click", async (event) => {
-            /** @type {Element | null} */
-            let target = event.target;
-
-            while (target != null && !(target instanceof HTMLAnchorElement)) {
-                target = target.parentElement;
-            }
-
-            if (target instanceof HTMLAnchorElement) {
-                event.preventDefault();
-                navigateTo(target.href);
-            }
-        });
-
-        await router();
-    });
-
-    // TODO: This only works when saving this file for some reason
-    if (import.meta.hot) {
-        import.meta.hot.accept(async (newModule) => {
-            registerAll();
-            await router();
-        });
-    }
-}
-
-/**
- * Redirect to another page without reload.
- *
- * @param {string} url
- */
-export function navigateTo(url) {
-    history.pushState(null, null, url);
-    initialPageLoad = true;
-    setTimeout(async () => await router());
-}
-
-/**
- * Force the refresh of the DOM.
- */
-export async function dirty() {
-    setTimeout(async () => await router());
-}
 
 /*
     COMPONENT MANIPULATION
@@ -319,20 +24,207 @@ function hash(str) {
     return h;
 }
 
-class ComponentNode {
+/**
+ * An interface to manipulate the inner DOM of a component.
+ */
+class ComponentDOM {
+    constructor() {
+        /** @type {Array<ComponentDOMElementRef} */
+        this.elements = [];
+        /** @type {Map<string, Array<import("./micro").ComponentEventCallback>>} */
+        this.events = new Map();
+        this.intervals = [];
+        this.timeouts = [];
+    }
+
+    /**
+     * @param {string} name
+     * @param {any} callback
+     * @returns {ComponentDOMElementRef}
+     */
+    querySelector(selector) {
+        const ref = new ComponentDOMElementRef("querySelector", selector);
+        this.elements.push(ref);
+        return ref;
+    }
+
+    /**
+     * @param {string} name
+     * @param {any} callback
+     */
+    querySelectorAll(selector) {
+        const ref = new ComponentDOMElementRef("querySelectorAll", selector);
+        this.elements.push(ref);
+        return ref;
+    }
+
+    /**
+     * @param {keyof import("./micro").ComponentEvent} event
+     * @param {import("./micro").ComponentEventCallback} callback
+     */
+    addEventListener(event, callback) {
+        if (!this.events.has(event)) {
+            this.events.set(event, []);
+        }
+
+        this.events.get(event).push(callback);
+    }
+
+    createInterval(callback, interval) {
+        this.intervals.push(setInterval(callback, interval));
+    }
+
+    createTimeout(callback, interval) {
+        this.timeouts.push(setTimeout(callback, interval));
+    }
+}
+
+class ComponentDOMElementRef {
+    constructor(type, selector) {
+        this.type = type;
+        this.selector = selector;
+        this.eventCallbacks = new Map();
+        this.doCallbacks = [];
+    }
+
+    /**
+     * @param {string} name
+     * @param {any} callback
+     */
+    on(name, callback) {
+        this.eventCallbacks.set(name, callback);
+    }
+
+    /**
+     * @param {any} callback
+     */
+    do(callback) {
+        this.doCallbacks.push(callback);
+    }
+}
+
+/**
+ * An interface to access different types of scores.
+ */
+class Stores {
+    constructor(componentName) {
+        this.componentName = componentName;
+        this.stores = new Map();
+    }
+
+    // /**
+    //  * @param {string} name
+    //  * @returns {[ value: typeof defaultValue, setValue: (value: typeof defaultValue) => void ]}
+    //  */
+    // use(name, defaultValue) {}
+
+    /**
+     * A store which use localStorage to persist its value.
+     *
+     * @param {string} name
+     * @returns {[() => typeof defaultValue, (value: typeof defaultValue) => void ]}
+     */
+    usePersistent(name, defaultValue) {
+        const fullName = this.componentName + "_" + name;
+
+        return [
+            () => {
+                const value = localStorage.getItem(fullName);
+
+                if (value == null) {
+                    localStorage.setItem(fullName, JSON.stringify(defaultValue));
+                    return defaultValue;
+                } else {
+                    return JSON.parse(value);
+                }
+            },
+            (value) => {
+                localStorage.setItem(fullName, JSON.stringify(value));
+                setTimeout(async () => await router());
+            },
+        ];
+    }
+}
+
+/**
+ * @param {any} comp
+ * @param {Map<string, string>} attributes
+ * @param {Map<string, string>} params
+ * @param {VirtualNode} parent
+ * @param {Element} parentElement
+ * @returns {Promise<VirtualNode>}
+ */
+async function createComponent(comp, attributes, params, parent) {
+    /** @type {import("./micro").ComponentParams} */
+    let object = {
+        params: params,
+        dom: new ComponentDOM(),
+        attributes: attributes,
+        stores: new Stores(comp.name),
+    };
+
+    const node = new VirtualNodeComponent(object, comp.name, parent, parent);
+    const element = await parseHTML(await comp(object), comp.name, params, node);
+    node.element = element;
+    element.classList.add(node.id);
+
+    return node;
+}
+
+/*
+    VIRTUAL DOM
+ */
+
+class VirtualNode {
+    constructor() {
+        /** @type {VirtualNode[]} */
+        this.children = [];
+    }
+
+    /**
+     * @param {VirtualNode} node
+     */
+    appendChild(node) {
+        this.children.push(node);
+    }
+}
+
+class VirtualNodeText extends VirtualNode {
+    /**
+     * @param {string} text
+     */
+    constructor(text) {
+        super();
+        this.text = text;
+        this.children = undefined;
+    }
+}
+
+class VirtualNodeElement extends VirtualNode {
+    /**
+     * @param {Element} element
+     */
+    constructor(element) {
+        super();
+        this.element = element;
+    }
+}
+
+class VirtualNodeComponent extends VirtualNode {
     /**
      * @param {import("./micro").ComponentParams} object
      * @param {string} name
-     * @param {ComponentNode} parent
+     * @param {VirtualNode} parent
      * @param {Element} parentElement
      */
-    constructor(object, name, parent, parentElement) {
+    constructor(object, name, parent) {
+        super();
         /** @type {Array<ComponentNode>} */
         this.children = [];
         this.object = object;
-        this.parent = parent;
-        this.parentElement = parentElement;
+        this.element = undefined;
         this.name = name;
+        this.parent = parent;
         this.id = "id" + this.createComponentId();
 
         // TODO: Add the index of the node to the id.
@@ -477,6 +369,12 @@ class ComponentNode {
         let node = this.parent;
 
         while (node != undefined) {
+            if (node instanceof VirtualNodeComponent) {
+                parents.push(node.name);
+            } else if (node instanceof VirtualNodeElement) {
+                parents.push(node.element.tagName);
+            }
+
             parents.push(node.name);
             node = node.parent;
         }
@@ -529,154 +427,11 @@ class ComponentNode {
     }
 }
 
-/**
- * An interface to manipulate the inner DOM of a component.
- */
-class ComponentDOM {
+class VirtualDOM {
     constructor() {
-        /** @type {Array<ComponentDOMElementRef} */
-        this.elements = [];
-        /** @type {Map<string, Array<import("./micro").ComponentEventCallback>>} */
-        this.events = new Map();
-        this.intervals = [];
-        this.timeouts = [];
+        /** @type {VirtualNode} */
+        this.root = undefined;
     }
-
-    /**
-     * @param {string} name
-     * @param {any} callback
-     * @returns {ComponentDOMElementRef}
-     */
-    querySelector(selector) {
-        const ref = new ComponentDOMElementRef("querySelector", selector);
-        this.elements.push(ref);
-        return ref;
-    }
-
-    /**
-     * @param {string} name
-     * @param {any} callback
-     */
-    querySelectorAll(selector) {
-        const ref = new ComponentDOMElementRef("querySelectorAll", selector);
-        this.elements.push(ref);
-        return ref;
-    }
-
-    /**
-     * @param {keyof import("./micro").ComponentEvent} event
-     * @param {import("./micro").ComponentEventCallback} callback
-     */
-    addEventListener(event, callback) {
-        if (!this.events.has(event)) {
-            this.events.set(event, []);
-        }
-
-        this.events.get(event).push(callback);
-    }
-
-    createInterval(callback, interval) {
-        this.intervals.push(setInterval(callback, interval));
-    }
-
-    createTimeout(callback, interval) {
-        this.timeouts.push(setTimeout(callback, interval));
-    }
-}
-
-class ComponentDOMElementRef {
-    constructor(type, selector) {
-        this.type = type;
-        this.selector = selector;
-        this.eventCallbacks = new Map();
-        this.doCallbacks = [];
-    }
-
-    /**
-     * @param {string} name
-     * @param {any} callback
-     */
-    on(name, callback) {
-        this.eventCallbacks.set(name, callback);
-    }
-
-    /**
-     * @param {any} callback
-     */
-    do(callback) {
-        this.doCallbacks.push(callback);
-    }
-}
-
-/**
- * An interface to access different types of scores.
- */
-class Stores {
-    constructor(componentName) {
-        this.componentName = componentName;
-        this.stores = new Map();
-    }
-
-    // /**
-    //  * @param {string} name
-    //  * @returns {[ value: typeof defaultValue, setValue: (value: typeof defaultValue) => void ]}
-    //  */
-    // use(name, defaultValue) {}
-
-    /**
-     * A store which use localStorage to persist its value.
-     *
-     * @param {string} name
-     * @returns {[() => typeof defaultValue, (value: typeof defaultValue) => void ]}
-     */
-    usePersistent(name, defaultValue) {
-        const fullName = this.componentName + "_" + name;
-
-        return [
-            () => {
-                const value = localStorage.getItem(fullName);
-
-                if (value == null) {
-                    localStorage.setItem(fullName, JSON.stringify(defaultValue));
-                    return defaultValue;
-                } else {
-                    return JSON.parse(value);
-                }
-            },
-            (value) => {
-                localStorage.setItem(fullName, JSON.stringify(value));
-                setTimeout(async () => await router());
-            },
-        ];
-    }
-}
-
-/**
- * @param {any} comp
- * @param {Map<string, string>} attributes
- * @param {Map<string, string>} params
- * @param {ComponentNode} parentNode
- * @param {Element} parentElement
- * @returns {Promise<Element>}
- */
-async function createComponent(comp, attributes, params, parentNode, parentElement) {
-    /** @type {import("./micro").ComponentParams} */
-    let object = {
-        params: params,
-        dom: new ComponentDOM(),
-        attributes: attributes,
-        stores: new Stores(comp.name),
-    };
-
-    const node = new ComponentNode(object, comp.name, parentNode, parentElement);
-    object.node = node;
-
-    const element = await parseHTML(await comp(object), comp.name, params, node);
-    element.classList.add(node.id);
-
-    parentNode.appendChild(node);
-
-    return element;
 }
 
 /*
@@ -971,12 +726,11 @@ function isValidSVGTag(name) {
 /**
  * @param {string} name
  * @param {Map<string, string>} attributes
- * @param {Element} parent
+ * @param {VirtualNode} parent
  * @param {Map<string, string>} params
- * @param {ComponentNode} parentNode
- * @returns {Promise<Element | undefined>}
+ * @returns {Promise<VirtualNode>}
  */
-async function createElement(name, attributes, parent, params, parentNode) {
+async function createElement(name, attributes, parent, params) {
     let element = null;
 
     if (name == "svg" || (isInSvg(parent) && isValidSVGTag(name))) {
@@ -992,32 +746,29 @@ async function createElement(name, attributes, parent, params, parentNode) {
             throw new ParseError("Unknown component " + name);
         }
 
-        return await createComponent(component, attributes, params, parentNode, parent);
+        return await createComponent(component, attributes, params, parent);
     }
 
     for (let attribute of attributes.keys()) {
         element.setAttribute(attribute, attributes.get(attribute));
     }
 
-    return element;
+    return new VirtualNodeElement(element);
 }
 
 /**
  * @param {Token[]} tokens
- * @param {HTMLElement} parent
+ * @param {VirtualNode} parent
  * @param {Map<string, string>} params
- * @param {ComponentNode} parentNode
  */
-async function parseHTMLInner(tokens, parent, params, parentNode) {
+async function parseHTMLInner(tokens, parent, params) {
     let index = 0;
 
     while (index < tokens.length) {
         if (tokens[index] instanceof TokenString) {
-            parent.append(tokens[index].text);
+            parent.appendChild(new VirtualNodeText(tokens[index].text));
         } else if (tokens[index] instanceof TokenTag) {
-            const res = await createElement(tokens[index].name, tokens[index].attribs, parent, params, parentNode);
-
-            parent.append(res);
+            parent.appendChild(await createElement(tokens[index].name, tokens[index].attribs, parent, params));
         } else if (tokens[index] instanceof TokenOpenTag) {
             /** @type {TokenOpenTag} */
             let token = tokens[index];
@@ -1041,11 +792,11 @@ async function parseHTMLInner(tokens, parent, params, parentNode) {
             }
 
             if (tokens[index] instanceof TokenCloseTag && tokens[index].name == tagName && openTags == 0) {
-                const element = await createElement(token.name, token.attribs, parent, params, parentNode);
+                const element = await createElement(token.name, token.attribs, parent, params);
                 const innerTokens = tokens.slice(tokenStart + 1, index);
 
-                await parseHTMLInner(innerTokens, element, params, parentNode);
-                parent.append(element);
+                await parseHTMLInner(innerTokens, element, params);
+                parent.appendChild(element);
             } else {
                 throw new ParseError("cannot find closing tag");
             }
@@ -1061,16 +812,313 @@ async function parseHTMLInner(tokens, parent, params, parentNode) {
  * @param {string} source
  * @param {string} name
  * @param {Map<string, string>} params
- * @param {ComponentNode} parentNode
+ * @param {VirtualNode} parent
  * @returns {Promise<HTMLElement>}
  */
-export async function parseHTML(source, name, params, parentNode) {
+export async function parseHTML(source, name, params, parent) {
     const tokens = tokenizeHTML(source, name);
     // console.log(...tokens);
 
     let div = document.createElement("div");
     div.classList.add("micro-" + name);
 
-    await parseHTMLInner(tokens, div, params, parentNode);
+    await parseHTMLInner(tokens, parent, params);
     return div;
+}
+
+/*
+    ROOTER
+ */
+
+let initialPageLoad = true;
+
+window.onpopstate = async () => {
+    await router();
+};
+
+/**
+ * @param {Node} node
+ * @returns {string}
+ */
+function elementToString(node) {
+    if (node instanceof Element) {
+        let s = node.tagName + "-attribs[";
+
+        for (let index = 0; index < node.attributes.length; index++) {
+            s += node.attributes.item(index).name + "=" + node.attributes.item(index).value;
+        }
+
+        s += "]-class[";
+
+        for (let index = 0; index < node.classList.length; index++) {
+            s += node.classList.item(index) + ",";
+        }
+
+        s += "]";
+        return s;
+    } else if (node instanceof Text) {
+        return "TEXT-" + node.data;
+    }
+}
+
+/**
+ * Recursively go down through the node tree and replace nodes only when necessary.
+ *
+ * @param {Element} oldElement
+ * @param {Element} newElement
+ * @param {Element} app
+ * @param {ComponentNode} oldNode
+ * @param {ComponentNode} newNode
+ * @param {ComponentNode} appNode
+ */
+function applyTreeDifference(oldElement, newElement, app, oldNode, newNode, appNode) {
+    let index = 0;
+
+    // NOTE: When calling `Element.replaceChild` the node is removed from the original tree before
+    //       replacing in the new tree, decrementing `element.childNodes.length` in the process.
+    //       We need to clone the node before!
+
+    let oldString = elementToString(oldElement);
+    let newString = elementToString(newElement);
+
+    if (oldString != newString) {
+        // for (let child of oldNode.childOf(oldElement)) {
+        //     console.log(child);
+        //     child.cleanup();
+        // }
+
+        console.log(oldNode.childOf(oldElement));
+
+        app.replaceChild(newElement, oldElement);
+        appNode.replaceChild(newNode, oldNode);
+
+        return;
+    }
+
+    for (; index < oldElement.childNodes.length; index++) {
+        if (index >= newElement.childNodes.length) {
+            const element = oldElement.childNodes.item(index);
+
+            for (let child of oldNode.childOf(oldElement)) {
+                child.cleanup();
+            }
+
+            oldElement.removeChild(element);
+        } else {
+            let oldString = elementToString(oldElement.childNodes.item(index));
+            let newString = elementToString(newElement.childNodes.item(index));
+
+            if (oldString != newString) {
+                // replace the node
+                const element = oldElement.childNodes.item(index);
+
+                for (let child of oldNode.childOf(element)) {
+                    child.cleanup();
+                }
+
+                oldElement.replaceChild(newElement.childNodes.item(index).cloneNode(true), element);
+            } else {
+                // nothing to do, go down the tree recursively
+                let element = oldElement.childNodes.item(index);
+
+                if (element instanceof Element) {
+                    if (element.classList.length == 2 && element.classList.item(0).includes("micro-")) {
+                        let oldNode2 = oldNode.getComponentById(element.classList.item(1));
+                        let newNode2 = newNode.getComponentById(element.classList.item(1));
+
+                        applyTreeDifference(
+                            oldElement.childNodes.item(index),
+                            newElement.childNodes.item(index),
+                            app,
+                            oldNode2,
+                            newNode2,
+                            appNode
+                        );
+                    } else {
+                        applyTreeDifference(
+                            oldElement.childNodes.item(index),
+                            newElement.childNodes.item(index),
+                            app,
+                            oldNode,
+                            newNode,
+                            appNode
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    for (; index < newElement.childNodes.length; index++) {
+        oldElement.appendChild(newElement.childNodes.item(index));
+    }
+}
+
+function matchRoute(routes, path) {
+    const parts = path.substring(1).split("/");
+
+    for (let route of routes) {
+        const routeParts = route.path.substring(1).split("/");
+
+        if (routeParts.length !== parts.length) {
+            continue;
+        }
+
+        let params = new Map();
+
+        let index = 0;
+        for (; index < parts.length; index++) {
+            let part = parts[index];
+            let routePart = routeParts[index];
+
+            if (routePart[0] == "[" && routePart[routePart.length - 1] == "]") {
+                /** @type {string} */
+                let param = routePart.substring(1, routePart.length - 1);
+                let value = part;
+
+                if (param.includes("=")) {
+                    let name = param.substring(0, param.indexOf("="));
+                    let values = param.substring(param.indexOf("=") + 1);
+
+                    if (values[0] == "$" && values[values.length - 1] == "$") {
+                        const regex = new RegExp(values.substring(1, values.length - 1));
+
+                        if (!regex.test(value)) {
+                            break;
+                        }
+                    } else {
+                        let values2 = values.split(",");
+
+                        if (!values2.includes(value)) {
+                            break;
+                        }
+                    }
+
+                    param = name;
+                }
+
+                params.set(param, value);
+            } else if (routePart != part) {
+                break;
+            }
+        }
+
+        if (index == parts.length) {
+            return { route: route, params: params };
+        }
+    }
+
+    return undefined;
+}
+
+let dom = new VirtualDOM();
+
+async function router() {
+    let app = document.getElementById("micro-app");
+    let oldNode = dom.root;
+
+    if (routerSettings == undefined) {
+        return;
+    }
+
+    const route = matchRoute(routerSettings.routes, location.pathname);
+    let newNode;
+
+    // This should not be called here, only once during load and after each hot reload
+    registerAll();
+
+    if (route != undefined) {
+        if (routerSettings.hook && initialPageLoad) {
+            // We don't want to call the hook every time we refresh the page, only when navigating
+            // between pages.
+            await routerSettings.hook(route.route.path);
+        }
+
+        let attributes = new Map();
+
+        if (route.route.attributes != undefined) {
+            attributes = new Map(Object.entries(route.route.attributes));
+        }
+
+        newNode = await createComponent(route.route.view, attributes, route.params, undefined);
+    } else if (routerSettings.notFound != undefined) {
+        newNode = await createComponent(routerSettings.notFound, new Map(), new Map(), undefined);
+    }
+
+    // if (newElement == undefined) {
+    //     throw new Error("Invalid view");
+    // }
+
+    // if (oldElement == null) {
+    //     app.append(newElement);
+    // } else {
+    //     let oldNode = rootNode.children.at(0);
+    //     let newNode = newRootNode.children.at(0);
+
+    //     applyTreeDifference(oldElement, newElement, app, oldNode, newNode, rootNode);
+    // }
+
+    // rootNode = newRootNode;
+
+    // if (initialPageLoad) {
+    //     rootNode.addEventListeners();
+    //     await rootNode.applyDoCallbacks();
+    // }
+
+    // initialPageLoad = false;
+
+    console.log(newNode);
+}
+
+/**
+ * @param {import("./micro").RouterSettings} settings
+ */
+export function defineRouter(settings) {
+    routerSettings = settings;
+
+    document.addEventListener("DOMContentLoaded", async () => {
+        // Prevent <a> tags from reloading the page by preventing the default behaviour
+        // and using our own `navigateTo`
+        document.body.addEventListener("click", async (event) => {
+            /** @type {Element | null} */
+            let target = event.target;
+
+            while (target != null && !(target instanceof HTMLAnchorElement)) {
+                target = target.parentElement;
+            }
+
+            if (target instanceof HTMLAnchorElement) {
+                event.preventDefault();
+                navigateTo(target.href);
+            }
+        });
+
+        await router();
+    });
+
+    // TODO: This only works when saving this file for some reason
+    if (import.meta.hot) {
+        import.meta.hot.accept(async (newModule) => {
+            registerAll();
+            await router();
+        });
+    }
+}
+
+/**
+ * Redirect to another page without reload.
+ *
+ * @param {string} url
+ */
+export function navigateTo(url) {
+    history.pushState(null, null, url);
+    initialPageLoad = true;
+    setTimeout(async () => await router());
+}
+
+/**
+ * Force the refresh of the DOM.
+ */
+export async function dirty() {
+    setTimeout(async () => await router());
 }

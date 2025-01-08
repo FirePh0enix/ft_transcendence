@@ -149,6 +149,7 @@ export default async function Tournament({ dom, params, node }) {
                     for (let round of data["rounds"]) {
                         let games = round["games"];
                         container.appendChild(
+                            // TODO: Remove the use of `parseHTML`, it should be an internal fonction only
                             await parseHTML(
                                 /* HTML */ ` <div class="container-fluid round-container">
                                     <TournamentRound roundCount="${games.length}" data="${JSON.stringify(games)}" />
@@ -163,7 +164,7 @@ export default async function Tournament({ dom, params, node }) {
                                 </div>`,
                                 undefined,
                                 undefined,
-                                node
+                                undefined
                             )
                         );
                     }

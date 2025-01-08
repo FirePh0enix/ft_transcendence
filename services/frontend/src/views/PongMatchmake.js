@@ -5,7 +5,7 @@ import { dirty } from "../micro";
 import { tr } from "../i18n";
 
 /** @type {import("../micro").Component} */
-export default async function PongMatchmake({ dom, stores, node }) {
+export default async function PongMatchmake({ dom, stores }) {
     const GET = location.search
         .substring(1)
         .split("&")
