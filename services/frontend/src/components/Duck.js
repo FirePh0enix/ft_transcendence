@@ -39,13 +39,18 @@ export default async function Duck({ dom, stores }) {
     }
 
     dom.querySelector("#the-duck").do((element) => {
-        // dom.createInterval(() => {
-        //     let _data = data();
-        //     for (let obj of upgrades) {
-        //         let value = _data[obj.name];
-        //         setCount(count() + obj.mul(value));
-        //     }
-        // }, 1000);
+        let interval = setInterval(() => {
+            let _data = data();
+            for (let obj of upgrades) {
+                let value = _data[obj.name];
+                setCount(count() + obj.mul(value));
+            }
+        }, 1000);
+        dom.addEventListener("delete", (event) => {
+            clearInterval(interval);
+        });
+
+        // TODO: Fix dom.createInterval
     });
 
     dom.querySelector("#the-duck").on("click", (event) => {

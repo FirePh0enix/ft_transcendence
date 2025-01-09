@@ -187,6 +187,33 @@ class VirtualNode {
     appendChild(node) {
         this.children.push(node);
     }
+
+    /**
+     * @returns {Element}
+     */
+    build() {
+        return undefined;
+    }
+
+    async mount() {
+        if (this.children == undefined) {
+            return;
+        }
+
+        for (let child of this.children) {
+            await child.mount();
+        }
+    }
+
+    clean() {
+        if (this.children == undefined) {
+            return;
+        }
+
+        for (let child of this.children) {
+            child.clean();
+        }
+    }
 }
 
 class VirtualNodeText extends VirtualNode {
@@ -208,6 +235,52 @@ class VirtualNodeElement extends VirtualNode {
         super();
         this.element = element;
     }
+
+    addEventListeners() {
+        for (let child of this.children) {
+            if (child instanceof VirtualNodeComponent || child instanceof VirtualNodeElement) {
+                child.addEventListeners();
+            }
+        }
+    }
+
+    async applyDoCallbacks() {
+        for (let child of this.children) {
+            if (child instanceof VirtualNodeComponent || child instanceof VirtualNodeElement) {
+                await child.applyDoCallbacks();
+            }
+        }
+    }
+
+    /**
+     * @param {string} name
+     * @param {*} event
+     */
+    dispatchEvent(name, event) {
+        for (let child of this.children) {
+            if (child instanceof VirtualNodeComponent || child instanceof VirtualNodeElement) {
+                child.dispatchEvent(name, event);
+            }
+        }
+    }
+
+    /**
+     * @returns {Element}
+     */
+    build() {
+        /** @type {Element} */
+        let newElement = this.element.cloneNode(true);
+
+        for (let child of this.children) {
+            if (child instanceof VirtualNodeText) {
+                newElement.append(child.text);
+            } else {
+                newElement.append(child.build());
+            }
+        }
+
+        return newElement;
+    }
 }
 
 class VirtualNodeComponent extends VirtualNode {
@@ -219,8 +292,6 @@ class VirtualNodeComponent extends VirtualNode {
      */
     constructor(object, name, parent) {
         super();
-        /** @type {Array<ComponentNode>} */
-        this.children = [];
         this.object = object;
         this.element = undefined;
         this.name = name;
@@ -230,58 +301,11 @@ class VirtualNodeComponent extends VirtualNode {
         // TODO: Add the index of the node to the id.
     }
 
-    /**
-     * @param {ComponentNode} node
-     */
-    appendChild(node) {
-        this.children.push(node);
-    }
-
-    /**
-     * @param {string} id
-     * @returns {ComponentNode | undefined}
-     */
-    getComponentById(id) {
-        for (let child of this.children) {
-            if (child.id == id) {
-                return child;
-            }
-
-            const comp = child.getComponentById(id);
-
-            if (comp != undefined) {
-                return comp;
-            }
-        }
-    }
-
-    /**
-     * Returns the direct children of the component which are a direct or indirect child
-     * of the given element in the DOM.
-     *
-     * @param {Element} element
-     * @returns {ComponentNode[]}
-     */
-    childOf(element) {
-        let array = [];
-
-        for (let child of this.children) {
-            if (child.parentElement.isSameNode(element)) {
-                array.push(child);
-            } else {
-                for (let childElement of element.children) {
-                    let array2 = this.childOf(childElement);
-                    array.push(...array2);
-                }
-            }
-        }
-
-        return array;
-    }
-
     addEventListeners() {
         for (let child of this.children) {
-            child.addEventListeners();
+            if (child instanceof VirtualNodeComponent || child instanceof VirtualNodeElement) {
+                child.addEventListeners();
+            }
         }
 
         if (this.object != undefined) {
@@ -324,7 +348,9 @@ class VirtualNodeComponent extends VirtualNode {
 
     async applyDoCallbacks() {
         for (let child of this.children) {
-            await child.applyDoCallbacks();
+            if (child instanceof VirtualNodeComponent || child instanceof VirtualNodeElement) {
+                await child.applyDoCallbacks();
+            }
         }
 
         if (this.object != undefined) {
@@ -390,8 +416,6 @@ class VirtualNodeComponent extends VirtualNode {
         /** @type {Array<import("./micro").ComponentEventCallback>} */
         let events = this.object.dom.events.get(name);
 
-        if (this.name == "Duck") console.log(this.name, this.id, events);
-
         if (events != undefined) {
             for (let callback of events) {
                 setTimeout(async () => await callback(event));
@@ -399,13 +423,15 @@ class VirtualNodeComponent extends VirtualNode {
         }
 
         for (let child of this.children) {
-            child.dispatchEvent(name, event);
+            if (child instanceof VirtualNodeComponent || child instanceof VirtualNodeElement) {
+                child.dispatchEvent(name, event);
+            }
         }
     }
 
     /**
-     * @param {ComponentNode} child
-     * @param {ComponentNode} prev
+     * @param {VirtualNode} child
+     * @param {VirtualNode} prev
      */
     replaceChild(child, prev) {
         for (let index = 0; index < this.children.length; index++) {
@@ -415,15 +441,38 @@ class VirtualNodeComponent extends VirtualNode {
         }
     }
 
-    cleanup() {
+    async mount() {
+        this.addEventListeners();
+        await this.applyDoCallbacks();
+    }
+
+    clean() {
         for (let interval of this.object.dom.intervals) {
             clearInterval(interval);
         }
         for (let timeout of this.object.dom.timeouts) {
-            clearInterval(timeout);
+            clearTimeout(timeout);
         }
 
         this.dispatchEvent("delete", {});
+    }
+
+    /**
+     * @returns {Element}
+     */
+    build() {
+        /** @type {Element} */
+        let newElement = this.element.cloneNode(true);
+
+        for (let child of this.children) {
+            if (child instanceof VirtualNodeText) {
+                newElement.append(child.text);
+            } else {
+                newElement.append(child.build());
+            }
+        }
+
+        return newElement;
     }
 }
 
@@ -431,6 +480,16 @@ class VirtualDOM {
     constructor() {
         /** @type {VirtualNode} */
         this.root = undefined;
+    }
+
+    /**
+     * @returns {Element | undefined}
+     */
+    build() {
+        if (this.root == undefined) {
+            return undefined;
+        }
+        return this.root.build();
     }
 }
 
@@ -640,11 +699,11 @@ function tokenizeHTML(source, parentName) {
 }
 
 /**
- * @param {HTMLElement} parent
+ * @param {VirtualNode} parent
  * @returns {boolean}
  */
 function isInSvg(parent) {
-    if (parent instanceof SVGElement) {
+    if (parent instanceof VirtualNodeElement && parent.element instanceof SVGElement) {
         return true;
     } else if (parent == null) {
         return false;
@@ -807,13 +866,13 @@ async function parseHTMLInner(tokens, parent, params) {
 }
 
 /**
- * Parse an HTML string into an HTMLElement
+ * Parse a component's HTML code into an Element.
  *
  * @param {string} source
  * @param {string} name
  * @param {Map<string, string>} params
  * @param {VirtualNode} parent
- * @returns {Promise<HTMLElement>}
+ * @returns {Promise<Element>}
  */
 export async function parseHTML(source, name, params, parent) {
     const tokens = tokenizeHTML(source, name);
@@ -841,116 +900,94 @@ window.onpopstate = async () => {
  * @returns {string}
  */
 function elementToString(node) {
-    if (node instanceof Element) {
-        let s = node.tagName + "-attribs[";
+    if (node instanceof VirtualNodeElement) {
+        let element = node.element;
+        let s = element.tagName + "-attribs[";
 
-        for (let index = 0; index < node.attributes.length; index++) {
-            s += node.attributes.item(index).name + "=" + node.attributes.item(index).value;
+        for (let index = 0; index < element.attributes.length; index++) {
+            s += element.attributes.item(index).name + "=" + element.attributes.item(index).value;
         }
 
         s += "]-class[";
 
-        for (let index = 0; index < node.classList.length; index++) {
-            s += node.classList.item(index) + ",";
+        for (let index = 0; index < element.classList.length; index++) {
+            s += element.classList.item(index) + ",";
         }
 
         s += "]";
         return s;
-    } else if (node instanceof Text) {
-        return "TEXT-" + node.data;
+    } else if (node instanceof VirtualNodeText) {
+        return "TEXT-" + node.text;
+    } else if (node instanceof VirtualNodeComponent) {
+        return "COMPONENT-" + node.name + "-" + node.id;
     }
 }
 
 /**
  * Recursively go down through the node tree and replace nodes only when necessary.
  *
+ * @param {VirtualNode} oldNode
+ * @param {VirtualNode} newNode
  * @param {Element} oldElement
  * @param {Element} newElement
- * @param {Element} app
- * @param {ComponentNode} oldNode
- * @param {ComponentNode} newNode
- * @param {ComponentNode} appNode
+ * @param {VirtualNode} parentNode
+ * @param {Element} parentElement
  */
-function applyTreeDifference(oldElement, newElement, app, oldNode, newNode, appNode) {
-    let index = 0;
-
-    // NOTE: When calling `Element.replaceChild` the node is removed from the original tree before
-    //       replacing in the new tree, decrementing `element.childNodes.length` in the process.
-    //       We need to clone the node before!
-
-    let oldString = elementToString(oldElement);
-    let newString = elementToString(newElement);
-
-    if (oldString != newString) {
-        // for (let child of oldNode.childOf(oldElement)) {
-        //     console.log(child);
-        //     child.cleanup();
-        // }
-
-        console.log(oldNode.childOf(oldElement));
-
-        app.replaceChild(newElement, oldElement);
-        appNode.replaceChild(newNode, oldNode);
-
+async function applyTreeDifference(oldNode, newNode, oldElement, newElement, parentNode, parentElement) {
+    if (oldNode == undefined) {
+        parentElement.appendChild(newElement);
+        await newNode.mount();
         return;
     }
 
-    for (; index < oldElement.childNodes.length; index++) {
-        if (index >= newElement.childNodes.length) {
-            const element = oldElement.childNodes.item(index);
+    let oldString = elementToString(oldNode);
+    let newString = elementToString(newNode);
 
-            for (let child of oldNode.childOf(oldElement)) {
-                child.cleanup();
-            }
+    if (oldString != newString) {
+        oldNode.clean();
+        parentElement.replaceChild(newElement, oldElement);
+        await newNode.mount();
+        return;
+    }
 
-            oldElement.removeChild(element);
+    if (newNode instanceof VirtualNodeText) {
+        // Text nodes cant have children
+        return;
+    }
+
+    let index = 0;
+
+    // if (oldNode != undefined) {
+    //     console.log(
+    //         oldNode.children.length,
+    //         oldElement.childNodes.length,
+    //         oldNode.children.length == oldElement.childNodes.length
+    //     );
+    // }
+
+    for (; index < oldNode.children.length; index++) {
+        if (index >= newNode.children.length) {
+            let oldNode2 = oldNode.children.at(index);
+            let oldElement2 = oldElement.childNodes.item(index);
+
+            oldNode2.clean();
+
+            parentElement.removeChild(oldElement2);
         } else {
-            let oldString = elementToString(oldElement.childNodes.item(index));
-            let newString = elementToString(newElement.childNodes.item(index));
+            let oldNode2 = oldNode.children.at(index);
+            let newNode2 = newNode.children.at(index);
+            let oldElement2 = oldElement.childNodes.item(index);
+            let newElement2 = newElement.childNodes.item(index).cloneNode(true);
 
-            if (oldString != newString) {
-                // replace the node
-                const element = oldElement.childNodes.item(index);
-
-                for (let child of oldNode.childOf(element)) {
-                    child.cleanup();
-                }
-
-                oldElement.replaceChild(newElement.childNodes.item(index).cloneNode(true), element);
-            } else {
-                // nothing to do, go down the tree recursively
-                let element = oldElement.childNodes.item(index);
-
-                if (element instanceof Element) {
-                    if (element.classList.length == 2 && element.classList.item(0).includes("micro-")) {
-                        let oldNode2 = oldNode.getComponentById(element.classList.item(1));
-                        let newNode2 = newNode.getComponentById(element.classList.item(1));
-
-                        applyTreeDifference(
-                            oldElement.childNodes.item(index),
-                            newElement.childNodes.item(index),
-                            app,
-                            oldNode2,
-                            newNode2,
-                            appNode
-                        );
-                    } else {
-                        applyTreeDifference(
-                            oldElement.childNodes.item(index),
-                            newElement.childNodes.item(index),
-                            app,
-                            oldNode,
-                            newNode,
-                            appNode
-                        );
-                    }
-                }
-            }
+            applyTreeDifference(oldNode2, newNode2, oldElement2, newElement2, oldNode, oldElement);
         }
     }
 
-    for (; index < newElement.childNodes.length; index++) {
-        oldElement.appendChild(newElement.childNodes.item(index));
+    for (; index < newNode.length; index++) {
+        let newElement2 = newElement.childNodes.item(index).cloneNode(true);
+
+        parentElement.append(newElement2);
+        newElement2.mount();
     }
 }
 
@@ -1015,7 +1052,6 @@ let dom = new VirtualDOM();
 
 async function router() {
     let app = document.getElementById("micro-app");
-    let oldNode = dom.root;
 
     if (routerSettings == undefined) {
         return;
@@ -1045,29 +1081,18 @@ async function router() {
         newNode = await createComponent(routerSettings.notFound, new Map(), new Map(), undefined);
     }
 
-    // if (newElement == undefined) {
-    //     throw new Error("Invalid view");
-    // }
+    await applyTreeDifference(dom.root, newNode, app.firstElementChild, newNode.build(), undefined, app);
 
-    // if (oldElement == null) {
-    //     app.append(newElement);
-    // } else {
-    //     let oldNode = rootNode.children.at(0);
-    //     let newNode = newRootNode.children.at(0);
-
-    //     applyTreeDifference(oldElement, newElement, app, oldNode, newNode, rootNode);
-    // }
-
-    // rootNode = newRootNode;
+    if (dom.root == undefined || dom.root.id != newNode.id) {
+        dom.root = newNode;
+    }
 
     // if (initialPageLoad) {
     //     rootNode.addEventListeners();
     //     await rootNode.applyDoCallbacks();
     // }
 
-    // initialPageLoad = false;
-
-    console.log(newNode);
+    initialPageLoad = false;
 }
 
 /**
