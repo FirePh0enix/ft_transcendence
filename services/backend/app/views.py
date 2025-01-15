@@ -20,6 +20,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 
 from .models import duck, Player, Tournament, PongGameResult, Chat, Message
+from .models import duck, Player, Tournament, PongGameResult, Chat, Message
 from .errors import *
 from .ws import tournaments, pong_manager
 from .utils import remove_unwanted_characters
