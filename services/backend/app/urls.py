@@ -15,13 +15,18 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
+from .views import login_view, verify_otp_view
 
 from app import views
 from .ws import PongClientConsumer, ChessClientConsumer, TournamentConsumer, PongMatchmakeConsumer, ChatConsumer
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+
+    #2FA
+    path('api/login/', login_view, name='login'),
+    path('api/verify-otp/', verify_otp_view, name='verify_otp'),
 
     # Account management
     path('api/signin', views.signin),

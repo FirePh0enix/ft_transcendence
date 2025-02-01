@@ -23,15 +23,21 @@ from .models import duck, Player, Tournament, PongGameResult, Chat, Message
 from .errors import *
 from .ws import tournaments, pong_manager
 from .utils import remove_unwanted_characters
+from .views import LoginView
+from django.core.mail import send_mail
+from django.views.decorators.csrf import csrf_exempt
+from .models import OTP
 
 """
 Create a new user.
 """
+@csrf_exempt
 @require_POST
-def signin(request: HttpRequest):
+def signin(request):
+    """Inscription + OTP pour vérification"""
     data = json.loads(request.body)
 
-    if not "username" in data or not "password" in data or not "nickname" in data:
+    if "username" not in data or "password" not in data or "nickname" not in data:
         return HttpResponseBadRequest()
 
     username = data["username"]
@@ -48,7 +54,10 @@ def signin(request: HttpRequest):
 
     if Player.objects.filter(nickname=nickname).count() > 0:
         return JsonResponse({ "error": NICKNAME_ALREADY_USED })
+    if User.objects.filter(username=username).exists():
+        return JsonResponse({"error": "Ce nom d'utilisateur est déjà utilisé."}, status=400)
 
+    # Création de l'utilisateur et du joueur
     user = User.objects.create(username=username)
     player = Player.objects.create(user=user, nickname=remove_unwanted_characters(nickname))
 
@@ -489,42 +498,38 @@ def deleteFriend(request: HttpRequest, friend_id):
     return JsonResponse({"message": "Friend removed successfully."})
 
 
-@require_POST
-def addFriend(request: HttpRequest, friend_id):
-    if not request.user.is_authenticated:
-        return JsonResponse({"error": "NOT_AUTHENTICATED"})
+def sendMessage(request: HttpRequest, id, contenu: string):
+     if not request.user.is_authenticated:
+        return JsonResponse({ "error": NOT_AUTHENTICATED })
+     data = json.loads(request.body)
+     player = Player.objects.filter(user=request.user).first()
+     if not player:
+        return JsonResponse({ "error": INTERNAL_ERROR })
+     p2 = Player.objects.filter(id=id).first()
+     if not p2:
+         return JsonResponse({ "error": INTERNAL_ERROR })
+     chat, create = Chat.objects.get_or_create(player1=player, player2=p2)
+     if not chat:
+        return JsonResponse({ "error": INTERNAL_ERROR })
+     message = Message.objects.create(content=contenu, sender=player, receiver=p2)
+     chat.messages.insert(message)
+     return JsonResponse({})
 
-    player = Player.objects.filter(user=request.user).first()
-    if not player:
-        return JsonResponse({"error": "INTERNAL_ERROR"})
-
-    friend = Player.objects.filter(id=friend_id).first()
-    if not friend:
-        return JsonResponse({"error": "FRIEND_NOT_FOUND"})
-
-    # Ajouter l'ami via la relation ManyToManyField
-    player.friends.add(friend)
-
-    return JsonResponse({"message": "Friend added successfully."})
-
-
-@require_POST
-def deleteFriend(request: HttpRequest, friend_id):
-    if not request.user.is_authenticated:
-        return JsonResponse({"error": "NOT_AUTHENTICATED"})
-
-    player = Player.objects.filter(user=request.user).first()
-    if not player:
-        return JsonResponse({"error": "INTERNAL_ERROR"})
-
-    friend = Player.objects.filter(id=friend_id).first()
-    if not friend:
-        return JsonResponse({"error": "FRIEND_NOT_FOUND"})
-
-    # Supprimer l'ami via la relation ManyToManyField
-    player.friends.remove(friend)
-
-    return JsonResponse({"message": "Friend removed successfully."})
+def getMessages(request: HttpRequest, id):
+     if not request.user.is_authenticated:
+        return JsonResponse({ "error": NOT_AUTHENTICATED })
+     data = json.loads(request.body)
+     player = Player.objects.filter(user=request.user).first()
+     if not player:
+        return JsonResponse({ "error": INTERNAL_ERROR })
+     p2 = Player.objects.filter(id=id).first()
+     if not p2:
+         return JsonResponse({ "error": INTERNAL_ERROR })
+     chat = Chat.objects.filter(player1 = player, player2=p2)
+     if not chat:
+        return JsonResponse({ "error": INTERNAL_ERROR })
+     messages = chat.messages.all().values("content", "sender", "receiver")
+     return JsonResponse({"messages" : list(messages)})
 
 # @require_POST
 # def tournament_info(request: HttpRequest, id: str):
