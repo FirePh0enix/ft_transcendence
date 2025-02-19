@@ -5,6 +5,7 @@ setuptools==69.0.2
 sqlparse==0.5.2
 wheel==0.42.0
 django-cors-headers==4.6.0
+django-otp==1.5.4
 PyJWT[crypto]==2.10.0
 requests==2.32.3
 channels[daphne]==4.2.0
