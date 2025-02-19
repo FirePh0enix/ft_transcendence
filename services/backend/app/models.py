@@ -13,6 +13,7 @@ def default_skins():
 class Player(models.Model):
     user = ForeignKey(User, on_delete=models.CASCADE)
     nickname = CharField(max_length=20)
+    two_factor = BooleanField(default=False)
 
     external = BooleanField(default=False)
     accessToken = TextField(null=True)
@@ -81,8 +82,3 @@ class OTP(models.Model):
     def is_valid(self):
         """ Vérifie si l'OTP est valide (expire après 5 minutes) """
         return now() < self.created_at + timedelta(minutes=5)
-
-# TODO: Maybe store the game data to replay it later ?
-
-# TODO: Add statistics
-

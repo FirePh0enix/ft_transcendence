@@ -24,26 +24,24 @@ from .models import duck, Player, Tournament, PongGameResult, Chat, Message
 from .errors import *
 from .ws import tournaments, pong_manager
 from .utils import remove_unwanted_characters
-from .views import LoginView
 from django.core.mail import send_mail
-from django.views.decorators.csrf import csrf_exempt
 from .models import OTP
 
 """
 Create a new user.
 """
-@csrf_exempt
 @require_POST
 def signin(request):
     """Inscription + OTP pour vérification"""
     data = json.loads(request.body)
 
-    if "username" not in data or "password" not in data or "nickname" not in data:
+    if "username" not in data or "password" not in data or "nickname" not in data or "email" not in data:
         return HttpResponseBadRequest()
 
     username = data["username"]
     password = data["password"]
     nickname = data["nickname"]
+    email = data["email"]
 
     if remove_unwanted_characters(username) != data["username"]:
         return JsonResponse({"error": INVALID_USERNAME})
@@ -53,13 +51,14 @@ def signin(request):
     if User.objects.filter(username=username).count() > 0:
         return JsonResponse({"error": USERNAME_ALREADY_TAKEN})
 
+    if User.objects.filter(email=email).count() > 0:
+        return JsonResponse({"error": EMAIL_ALREADY_USED})
+
     if Player.objects.filter(nickname=nickname).count() > 0:
         return JsonResponse({ "error": NICKNAME_ALREADY_USED })
-    if User.objects.filter(username=username).exists():
-        return JsonResponse({"error": "Ce nom d'utilisateur est déjà utilisé."}, status=400)
 
     # Création de l'utilisateur et du joueur
-    user = User.objects.create(username=username)
+    user = User.objects.create(username=username, email=email)
     player = Player.objects.create(user=user, nickname=remove_unwanted_characters(nickname))
 
     user.set_password(password)
@@ -142,18 +141,73 @@ Log-in
 def loginRoute(request: HttpRequest):
     data = json.loads(request.body)
 
-    if not "username" in data or not "password" in data:
+    if "username" not in data or ("password" not in data and "otp" not in data):
         return HttpResponseBadRequest()
 
     username = data["username"]
-    password = data["password"]
 
-    user = authenticate(request, username=username, password=password)
-    if user is not None:
+    user = User.objects.filter(username=username).first()
+    player = Player.objects.filter(user=user).first()
+
+    if user is None:
+        return JsonResponse({ "error": MISMATCH_CREDENTIALS })
+
+    if player.two_factor and "otp" not in data:
+        if authenticate(request, username=username, password=data["password"]) is None:
+            return JsonResponse({ "error": MISMATCH_CREDENTIALS }) 
+        
+        # Génération et envoi du code OTP
+        otp_code = ''.join(random.choices(string.digits, k=6))  # Code OTP à 6 chiffres
+        OTP.objects.update_or_create(user=user, defaults={'otp_code': otp_code})
+
+        # send_mail(
+        #     "Votre code de vérification",
+        #     f"Votre code de vérification est : {otp_code}",
+        #     "no-reply@ft_transcendence.com",
+        #     [username],
+        #     fail_silently=False,
+        # )
+
+        print("code is", otp_code, file=sys.stderr)
+
+        return JsonResponse({ "need_2fa": True })
+    elif player.two_factor and "otp" in data:
+        otp = OTP.objects.filter(user=user, otp_code=data["otp"]).first()
+
+        if not otp and not otp.is_valid():
+            return JsonResponse({ "error": OTP_INVALID })
+        else:
+            login(request, user)
+            otp.delete()
+            return JsonResponse({ })
+
+    else:
+        user = authenticate(request, username=username, password=data["password"])
+
+        if user is None:
+            return JsonResponse({ "error": MISMATCH_CREDENTIALS }) 
+        
         login(request, user)
         return JsonResponse({ })
-    else:
-        return JsonResponse({ "error": MISMATCH_CREDENTIALS })
+
+@require_POST
+def set_2fa_state(request: HttpRequest, id: str, state: str):
+    if not request.user.is_authenticated:
+        return JsonResponse({ "error": NOT_AUTHENTICATED })
+
+    player = Player.objects.filter(user=request.user).first()
+    player.two_factor = state == "true"
+    player.save()
+
+    return JsonResponse({ })
+
+@require_POST
+def get_2fa_state(request: HttpRequest, id: str, state: str):
+    if not request.user.is_authenticated:
+        return JsonResponse({ "error": NOT_AUTHENTICATED })
+
+    player = Player.objects.filter(user=request.user).first()
+    return JsonResponse({ "state": player.two_factor })
 
 """
 Log-in with 42

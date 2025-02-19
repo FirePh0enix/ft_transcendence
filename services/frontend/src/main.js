@@ -20,6 +20,7 @@ import Social from "./views/Social";
 import Callback from "./views/Callback";
 import Chess from "./views/Chess";
 import * as bootstrap from "bootstrap";
+import TwoFactor from "./views/TwoFactor";
 window.bootstrap = bootstrap;
 
 defineRouter({
@@ -27,6 +28,7 @@ defineRouter({
         { path: "/", view: Home },
         { path: "/register", view: Registration },
         { path: "/login", view: Login },
+        { path: "/2fa", view: TwoFactor },
         { path: "/logout", view: Logout },
         { path: "/profile/social/[tab=friends,blacklist]", view: Social },
         { path: "/profile/[tab=match-history,statistics,skins,settings]", view: Profile },
@@ -44,6 +46,7 @@ defineRouter({
             route != "/login" &&
             route != "/register" &&
             route != "/redirected" &&
+            route != "/2fa" &&
             route != "/callback"
         ) {
             if (route == undefined || route == "/") {

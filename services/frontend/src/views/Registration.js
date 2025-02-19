@@ -14,6 +14,7 @@ export default class Registration extends Component {
                 const username = data.get("username");
                 const nickname = data.get("nickname");
                 const password = data.get("password");
+                const email = data.get("email");
 
                 if (!sanitizeInput(username) || !sanitizeInput(nickname) || !sanitizeInput(password)) {
                     showToast(
@@ -29,6 +30,7 @@ export default class Registration extends Component {
                         username: username,
                         nickname: nickname,
                         password: password,
+                        email: email,
                     }),
                 })
                     .then((res) => res.json())
@@ -93,6 +95,19 @@ export default class Registration extends Component {
                                 type="password"
                                 class="form-control settings"
                                 id="password"
+                                required
+                            />
+                        </div>
+                    </div>
+                    <div class="row mb-3 login">
+                        <label for="email" class="col-sm-2 col-form-label">${tr("Email")}</label>
+                        <div class="col-sm-8 login">
+                            <input
+                                name="email"
+                                autocomplete="off"
+                                type="email"
+                                class="form-control settings"
+                                id="email"
                                 required
                             />
                         </div>
