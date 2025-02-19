@@ -16,17 +16,12 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from .views import login_view, verify_otp_view
 
 from app import views
 from .ws import PongClientConsumer, ChessClientConsumer, TournamentConsumer, PongMatchmakeConsumer, ChatConsumer
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-
-    #2FA
-    path('api/login/', login_view, name='login'),
-    path('api/verify-otp/', verify_otp_view, name='verify_otp'),
 
     # Account management
     path('api/signin', views.signin),
@@ -42,6 +37,7 @@ urlpatterns = [
     path('api/player/<str:id>/picture', views.getProfilePicture),
     path('api/player/<str:id>/picture/update', views.updateProfilePicture),
     path('api/player/<str:id>/delete', views.deleteProfile),
+    path('api/player/<str:id>/set-2fa/<str:state>', views.set_2fa_state),
     path('api/player/<str:id>/matches', views.getMatches),
     path('api/player/<str:id>/stats/pong', views.getPongStats),
 

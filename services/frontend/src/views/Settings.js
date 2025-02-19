@@ -13,6 +13,7 @@ export default class Settings extends Component {
                 <ChangeProfilePictureForm />
                 <ChangeNicknameForm />
                 <ChangePasswordForm />
+                <Activate2FAForm />
                 <DeleteAccountForm />
             </ul>
         </div>`;
